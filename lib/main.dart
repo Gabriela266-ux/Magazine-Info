@@ -1,8 +1,12 @@
+import 'package:activite1/database_manager.dart';
+import 'gestion_redacteurs.dart';
 import 'package:flutter/material.dart';
 
-
-void main() {
-
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+     WidgetsFlutterBinding.ensureInitialized();
+      // Initialise la base de données avant de lancer l'application
+      await DatabaseManager.instance.database;
   runApp(const MonAppli());
 }
 class MonAppli extends StatelessWidget {
@@ -19,7 +23,7 @@ class MonAppli extends StatelessWidget {
 }
 class PageAccueil extends StatelessWidget {
   const PageAccueil({super.key});
-
+  
   @override
   Widget build(BuildContext context) {
     return  Scaffold(
@@ -88,6 +92,20 @@ drawer: Drawer(
          Navigator.pop(context);
        },
      ),
+  // C'est le bouton qui navigue vers la nouvelle page
+            ListTile(
+              leading: const Icon(Icons.people),
+              title: const Text('Gestion des rédacteurs'),
+              onTap: () {
+                // Ferme le menu latéral
+                Navigator.pop(context);
+                // Navigue vers la nouvelle page
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const PageGestionRedacteurs()),
+                );
+              },
+            ),
      ListTile(
         leading: const Icon(Icons.person),
        title: const Text('Profil'),
@@ -95,7 +113,7 @@ drawer: Drawer(
             // Logique pour naviguer vers le profil
          Navigator.pop(context);
         },
-      ),
+      ),      
     ],
   ),
 ),
