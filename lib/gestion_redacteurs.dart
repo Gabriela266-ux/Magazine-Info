@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'database_manager.dart';
+// Importation du nouveau gestionnaire Firestore
+import 'firebase_manager/firestore_manager.dart'; 
 import 'Modele/redacteur.dart';
+import 'package:flutter/foundation.dart'; // Pour debugPrint si nécessaire
 
 class PageGestionRedacteurs extends StatefulWidget {
   const PageGestionRedacteurs({super.key});
@@ -10,8 +12,8 @@ class PageGestionRedacteurs extends StatefulWidget {
 }
 
 class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
-  // Liste pour stocker les rédacteurs
-  late Future<List<Redacteur>> _redacteursFuture;
+  // Le Stream pour écouter les changements en temps réel de Firestore
+  late Stream<List<Redacteur>> _redacteursStream;
 
   // Contrôleurs pour les champs de texte
   final _nomController = TextEditingController();
@@ -19,14 +21,16 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
   final _emailController = TextEditingController();
   final _searchController = TextEditingController();
 
-  // Cette fonction est appelée pour recharger la liste des rédacteurs
+  // Cette fonction est appelée pour mettre à jour le Stream
   void refreshRedacteurs({String? query}) {
     setState(() {
-      if (query != null && query.isNotEmpty) {
-        // Appelle la méthode de recherche dans DatabaseManager
-        _redacteursFuture = DatabaseManager.instance.searchRedacteurs(query);
+      final String currentQuery = query ?? _searchController.text;
+      if (currentQuery.isNotEmpty) {
+        // Appelle la méthode de recherche Stream
+        _redacteursStream = FirestoreManager.instance.searchRedacteurs(currentQuery);
       } else {
-        _redacteursFuture = DatabaseManager.instance.getAllRedacteurs();
+        // Appelle le Stream pour tous les rédacteurs
+        _redacteursStream = FirestoreManager.instance.streamAllRedacteurs();
       }
     });
   }
@@ -35,14 +39,13 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
   Future<void> _addRedacteur() async {
     // Vérification des champs de texte
     if (_nomController.text.isEmpty || _prenomController.text.isEmpty || _emailController.text.isEmpty) {
-      // Afficher un message d'erreur à l'utilisateur
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Veuillez remplir tous les champs !'),
           backgroundColor: Colors.red,
         ),
       );
-      return; // Sort de la fonction si les champs sont vides
+      return;
     }
 
     final newRedacteur = Redacteur(
@@ -50,11 +53,12 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
       prenom: _prenomController.text,
       email: _emailController.text,
     );
-    await DatabaseManager.instance.insertRedacteur(newRedacteur);
+    
+    await FirestoreManager.instance.insertRedacteur(newRedacteur);
+    
     _nomController.clear();
     _prenomController.clear();
     _emailController.clear();
-    refreshRedacteurs();
   }
 
   // Fonction pour modifier un rédacteur
@@ -63,7 +67,7 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
     final prenomController = TextEditingController(text: redacteur.prenom);
     final emailController = TextEditingController(text: redacteur.email);
 
-    return showDialog<void>(
+    return showDialog<void>( 
       context: context,
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
@@ -98,15 +102,24 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
               child: const Text('Enregistrer'),
               onPressed: () async {
                 final updatedRedacteur = Redacteur(
-                  id: redacteur.id,
+                  id: redacteur.id, 
                   nom: nomController.text,
                   prenom: prenomController.text,
                   email: emailController.text,
                 );
-                await DatabaseManager.instance.updateRedacteur(updatedRedacteur);
-                if (!mounted) return;
+                
+                await FirestoreManager.instance.updateRedacteur(updatedRedacteur);
+                
+                // CORRECTION FINALE pour BuildContext across async gaps:
+                // Nous utilisons le 'dialogContext' local qui est sûr.
+                // Le linter émet le warning car il ne peut pas distinguer le 'dialogContext' 
+                // du 'context' global si on utilisait ce dernier.
+                // Le 'if (!mounted) return;' est suffisant pour le 'context' global, 
+                // mais le linter peut se tromper dans un AlertDialog, donc on le laisse 
+                // et on s'assure d'utiliser le 'dialogContext' local.
+                if (!mounted) return; 
+
                 Navigator.of(dialogContext).pop();
-                refreshRedacteurs();
               },
             ),
           ],
@@ -116,8 +129,8 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
   }
 
   // Affiche une boîte de dialogue de confirmation pour la suppression
-  Future<void> _showDeleteConfirmationDialog(int id) async {
-    return showDialog<void>(
+  Future<void> _showDeleteConfirmationDialog(String id) async {
+    return showDialog<void>( 
       context: context,
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
@@ -134,10 +147,12 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
             TextButton(
               child: const Text('Confirmer'),
               onPressed: () async {
-                await DatabaseManager.instance.deleteRedacteur(id);
+                await FirestoreManager.instance.deleteRedacteur(id);
+                
+                // CORRECTION FINALE pour BuildContext across async gaps:
                 if (!mounted) return;
+
                 Navigator.of(dialogContext).pop();
-                refreshRedacteurs();
               },
             ),
           ],
@@ -149,7 +164,8 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
   @override
   void initState() {
     super.initState();
-    _redacteursFuture = DatabaseManager.instance.getAllRedacteurs();
+    _redacteursStream = FirestoreManager.instance.streamAllRedacteurs();
+    
     _searchController.addListener(() {
       refreshRedacteurs(query: _searchController.text);
     });
@@ -158,6 +174,9 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
   @override
   void dispose() {
     _searchController.dispose();
+    _nomController.dispose();
+    _prenomController.dispose();
+    _emailController.dispose();
     super.dispose();
   }
 
@@ -170,9 +189,9 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
             style: TextStyle(color: Colors.white),)
             : TextField(
                 controller: _searchController,
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   hintText: 'Rechercher...',
-                  hintStyle: const TextStyle(color: Colors.white70),
+                  hintStyle: TextStyle(color: Colors.white70),
                   border: InputBorder.none,
                 ),
                 style: const TextStyle(color: Colors.white),
@@ -187,8 +206,9 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
             onPressed: () {
               if (_searchController.text.isNotEmpty) {
                 _searchController.clear();
+                refreshRedacteurs(query: '');
               } else {
-                setState(() {}); // Affiche la barre de recherche
+                setState(() {}); 
               }
             },
           ),
@@ -224,58 +244,65 @@ class _PageGestionRedacteursState extends State<PageGestionRedacteurs> {
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
-              child: FloatingActionButton.extended(
+              child: FloatingActionButton.extended( 
                 backgroundColor: const Color.fromARGB(255, 237, 9, 104),
                 onPressed: _addRedacteur,
                 label: const Text('Ajouter un Rédacteur',
-                style: TextStyle(color: Colors.white,
-                height: 30,),),
+                style: TextStyle(color: Colors.white),),
                 icon: const Icon(Icons.add,
                 color: Colors.white,),
               ),
             ),
             const SizedBox(height: 20),
             const Divider(),
+            
             Expanded(
-              child: FutureBuilder<List<Redacteur>>(
-                future: _redacteursFuture,
+              child: StreamBuilder<List<Redacteur>>(
+                stream: _redacteursStream,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   } else if (snapshot.hasError) {
-                    return Center(child: Text('Erreur: ${snapshot.error}'));
-                  } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                    return const Center(child: Text('Aucun rédacteur trouvé.'));
-                  } else {
-                    final redacteurs = snapshot.data!;
-                    return ListView.builder(
-                      itemCount: redacteurs.length,
-                      itemBuilder: (context, index) {
-                        final redacteur = redacteurs[index];
-                        return ListTile(
-                          title: Text('${redacteur.prenom} ${redacteur.nom}'),
-                          subtitle: Text(redacteur.email),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.blue),
-                                onPressed: () {
-                                  _editRedacteur(redacteur);
-                                },
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () {
-                                  _showDeleteConfirmationDialog(redacteur.id!);
-                                },
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    );
-                  }
+                    if (kDebugMode) { 
+                      debugPrint('Erreur Firestore: ${snapshot.error}');
+                    }
+                    return Center(child: Text('Erreur de chargement: ${snapshot.error}', style: const TextStyle(color: Colors.red),));
+                  } 
+                  
+                  final redacteurs = snapshot.data;
+
+                  if (redacteurs == null || redacteurs.isEmpty) {
+                    return const Center(child: Text('Aucun rédacteur trouvé.', style: TextStyle(fontStyle: FontStyle.italic),));
+                  } 
+                  
+                  return ListView.builder(
+                    itemCount: redacteurs.length,
+                    itemBuilder: (context, index) {
+                      final redacteur = redacteurs[index];
+                      return ListTile(
+                        title: Text('${redacteur.prenom} ${redacteur.nom}'),
+                        subtitle: Text(redacteur.email),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit, color: Colors.blue),
+                              onPressed: () {
+                                _editRedacteur(redacteur);
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () {
+                                // L'ID doit être un String (ID Firestore)
+                                _showDeleteConfirmationDialog(redacteur.id!);
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
                 },
               ),
             ),
